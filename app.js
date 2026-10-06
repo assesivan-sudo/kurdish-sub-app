@@ -30,7 +30,7 @@ translateBtn.addEventListener('click', async () => {
 
     try {
         // === لێرەدا ڕاستەوخۆ بەستراوەتەوە بە سێرڤەرە نوێیەکەت لەسەر Vercel ===
-        const response = await fetch(`https://kurdish-sub-app.vercel.app/api/transcript?videoId=${videoId}`);
+        const response = await fetch(`https://kurdish-sub-app.onrender.com/api/transcript?videoId=${videoId}`);
         const data = await response.json();
 
         if (data.error) {
