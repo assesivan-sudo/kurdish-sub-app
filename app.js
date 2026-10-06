@@ -29,8 +29,8 @@ translateBtn.addEventListener('click', async () => {
     settingsPanel.classList.add('hidden');
 
     try {
-        // بەستەری ڕاستەقینەی سێرڤەرەکەت لەسەر Render
-        const response = await fetch(`https://kurdish-sub-app.onrender.com/api/transcript?videoId=${videoId}`);
+        // === لێرەدا ڕاستەوخۆ بەستراوەتەوە بە سێرڤەرە نوێیەکەت لەسەر Vercel ===
+        const response = await fetch(`https://kurdish-sub-app.vercel.app/api/transcript?videoId=${videoId}`);
         const data = await response.json();
 
         if (data.error) {
