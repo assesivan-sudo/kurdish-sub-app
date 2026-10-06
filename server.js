@@ -14,21 +14,21 @@ app.get('/api/transcript', async (req, res) => {
     }
 
     try {
-        // لێرەدا فەرمانمان پێکردووە کە سەرەتا ژێرنووسە ئینگلیزییەکە بهێنێت (en)
         const transcript = await YoutubeTranscript.fetchTranscript(videoId, { lang: 'en' });
         res.json(transcript);
     } catch (error) {
-        // ئەگەر ئینگلیزی نەبوو، با هەر ژێرنووسێک هەبوو بیهێنێت
+        console.error("Error fetching English transcript:", error.message);
         try {
             const fallbackTranscript = await YoutubeTranscript.fetchTranscript(videoId);
             res.json(fallbackTranscript);
         } catch (e) {
-            res.status(500).json({ error: 'نەتوانرا ژێرنووسەکە بهێنرێت.' });
+            console.error("Error fetching fallback transcript:", e.message);
+            res.status(500).json({ error: 'نەتوانرا ژێرنووسەکە بهێنرێت.', details: e.message });
         }
     }
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`سێرڤەرەکە بە سەرکەوتوویی کار دەکات لەسەر: http://localhost:${PORT}`);
+    console.log(`سێرڤەرەکە بە سەرکەوتوویی کار دەکات لەسەر پۆرت: ${PORT}`);
 });
