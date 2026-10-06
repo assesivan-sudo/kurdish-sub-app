@@ -15,7 +15,7 @@ function fetchJson(url) {
                 try {
                     resolve(JSON.parse(data));
                 } catch (e) {
-                    reject(e);
+                    reject(new Error("Invalid JSON response from API"));
                 }
             });
         }).on('error', reject);
@@ -29,21 +29,20 @@ app.get('/api/transcript', async (req, res) => {
     }
 
     try {
-        const invidiousApiUrl = `https://invidious.projectsegfau.lt/api/v1/videos/${videoId}`;
-        const videoData = await fetchJson(invidiousApiUrl);
+        // بەکارهێنانی Piped API کە زۆر سەقامگیرە بۆ هێنانی ژێرنووس
+        const pipedApiUrl = `https://pipedapi.kavin.rocks/streams/${videoId}`;
+        const videoData = await fetchJson(pipedApiUrl);
 
-        if (!videoData.captions || videoData.captions.length === 0) {
+        if (!videoData.subtitles || videoData.subtitles.length === 0) {
             return res.status(404).json({ error: 'نەتوانرا ژێرنووس بهێنرێت. دڵنیابە ڤیدیۆکە ژێرنووسی هەیە.' });
         }
 
-        let caption = videoData.captions.find(c => c.languageCode === 'en' || c.label.toLowerCase().includes('english')) || videoData.captions[0];
+        // دۆزینەوەی ژێرنووسی ئینگلیزی یان یەکەم ژێرنووسی بەردەست
+        let caption = videoData.subtitles.find(c => c.code === 'en' || c.language.toLowerCase().includes('english')) || videoData.subtitles[0];
         
         let captionUrl = caption.url;
-        if (captionUrl.startsWith('/')) {
-            captionUrl = `https://invidious.projectsegfau.lt${captionUrl}`;
-        }
 
-        https.get(captionUrl, (subRes) => {
+        https.get(captionUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (subRes) => {
             let subData = '';
             subRes.on('data', chunk => subData += chunk);
             subRes.on('end', () => {
