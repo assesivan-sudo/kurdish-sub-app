@@ -5,63 +5,82 @@ const app = express();
 app.use(cors()); 
 app.use(express.json());
 
-app.get('/api/transcript', async (req, res) => {
-    const videoId = req.query.videoId;
-    if (!videoId) return res.status(400).json({ error: 'ئایدی ڤیدیۆ نەدۆزرایەوە.' });
-
+// فەنکشنێک بۆ هێنانی ژێرنووسەکان بە ناسنامەی مۆبایل و ئیمبێد بۆ تێپەڕاندنی بلۆکی یوتیوب
+async function getYoutubeCaptions(videoId) {
     try {
-        // بەکارهێنانی InnerTube API کە ڕاستەوخۆ دەچێتە ناو کرۆکی یوتیوب و کەمترین جار بلۆک دەکرێت
+        // هەوڵی یەکەم: خۆناساندن وەک ئەپڵیکەیشنی Android (کە بلۆک ناکرێت)
         const response = await fetch('https://www.youtube.com/youtubei/v1/player', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 context: {
                     client: {
-                        clientName: 'WEB',
-                        clientVersion: '2.20210721.00.00'
+                        clientName: 'ANDROID',
+                        clientVersion: '17.31.35',
+                        androidSdkVersion: 30,
+                        hl: 'en',
+                        gl: 'US'
                     }
                 },
                 videoId: videoId
             })
         });
 
-        if (!response.ok) {
-            throw new Error('InnerTube API وەڵامی نەدایەوە');
+        const data = await response.json();
+        let captions = data.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+        
+        // هەوڵی دووەم: ئەگەر ئەندرۆید وەڵامی نەداوە، خۆمان وەک WEB_EMBED (ڤیدیۆی ناو ماڵپەڕەکان) دەناسێنین
+        if (!captions || captions.length === 0) {
+            const resWeb = await fetch('https://www.youtube.com/youtubei/v1/player', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    context: {
+                        client: {
+                            clientName: 'WEB_EMBED',
+                            clientVersion: '1.20231102.01.00'
+                        }
+                    },
+                    videoId: videoId
+                })
+            });
+            const dataWeb = await resWeb.json();
+            captions = dataWeb.captions?.playerCaptionsTracklistRenderer?.captionTracks;
         }
 
-        const data = await response.json();
+        return captions;
+    } catch (e) {
+        console.error("Error fetching InnerTube:", e);
+        return null;
+    }
+}
 
-        // گەڕان بەدوای لیستی ژێرنووسەکاندا لەناو داتا خاوێنەکەدا
-        const captions = data.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+app.get('/api/transcript', async (req, res) => {
+    const videoId = req.query.videoId;
+    if (!videoId) return res.status(400).json({ error: 'ئایدی ڤیدیۆ نەدۆزرایەوە.' });
+
+    try {
+        const captions = await getYoutubeCaptions(videoId);
         
         if (!captions || captions.length === 0) {
             return res.status(404).json({ error: 'هیچ ژێرنووسێک بۆ ئەم ڤیدیۆیە نەدۆزراوەتەوە، یان ڤیدیۆکە ژێرنووسی نییە.' });
         }
 
-        // دۆزینەوەی ئینگلیزی یان یەکەم ژێرنووسی بەردەست
+        // دۆزینەوەی ژێرنووسی ئینگلیزی یان یەکەم ژێرنووس
         const track = captions.find(c => c.languageCode === 'en' || c.name.simpleText.toLowerCase().includes('english')) || captions[0];
 
         let captionUrl = track.baseUrl;
-        // دڵنیابوون لەوەی بە فۆرماتی JSON3 دەیگێڕێتەوە کە خوێندنەوەی ئاسانترە
         if (!captionUrl.includes('fmt=json3')) {
             captionUrl += '&fmt=json3';
         }
 
-        // هێنانی فایلی ژێرنووسەکە خۆی
-        const transcriptResponse = await fetch(captionUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0' }
-        });
-
+        const transcriptResponse = await fetch(captionUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
         const transcriptData = await transcriptResponse.json();
 
         if (!transcriptData.events) {
             return res.status(500).json({ error: 'داتای ژێرنووسەکە بەتاڵە.' });
         }
 
-        // ڕێکخستنی داتاکە بۆ ئەو شێوازەی کە ئەپەکەی تۆ دەیخوێنێتەوە
         const subtitles = transcriptData.events
             .filter(event => event.segs && event.segs.length > 0)
             .map(event => {
