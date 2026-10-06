@@ -6,18 +6,18 @@ const app = express();
 app.use(cors()); 
 app.use(express.json());
 
-function fetchJson(url) {
+function fetchUrl(url, headers = {}) {
     return new Promise((resolve, reject) => {
-        https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } }, (res) => {
+        const defaultHeaders = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+            ...headers
+        };
+
+        https.get(url, { headers: defaultHeaders }, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
-            res.on('end', () => {
-                try {
-                    resolve(JSON.parse(data));
-                } catch (e) {
-                    reject(new Error("Invalid JSON response from API"));
-                }
-            });
+            res.on('end', () => resolve(data));
         }).on('error', reject);
     });
 }
@@ -29,68 +29,50 @@ app.get('/api/transcript', async (req, res) => {
     }
 
     try {
-        // بەکارهێنانی Piped API کە زۆر سەقامگیرە بۆ هێنانی ژێرنووس
-        const pipedApiUrl = `https://pipedapi.kavin.rocks/streams/${videoId}`;
-        const videoData = await fetchJson(pipedApiUrl);
+        const html = await fetchUrl(`https://www.youtube.com/watch?v=${videoId}`);
+        
+        const captionMatch = html.match(/"captionTracks":\s*(\[.*?\])/);
+        if (!captionMatch) {
+            return res.status(404).json({ error: 'هیچ ژێرنووسێک بۆ ئەم ڤیدیۆیە نەدۆزراوەتەوە.' });
+        }
 
-        if (!videoData.subtitles || videoData.subtitles.length === 0) {
-            return res.status(404).json({ error: 'نەتوانرا ژێرنووس بهێنرێت. دڵنیابە ڤیدیۆکە ژێرنووسی هەیە.' });
+        const captionTracks = JSON.parse(captionMatch[1]);
+        if (!captionTracks || captionTracks.length === 0) {
+            return res.status(404).json({ error: 'ژێرنووس بەردەست نییە.' });
         }
 
         // دۆزینەوەی ژێرنووسی ئینگلیزی یان یەکەم ژێرنووسی بەردەست
-        let caption = videoData.subtitles.find(c => c.code === 'en' || c.language.toLowerCase().includes('english')) || videoData.subtitles[0];
+        const track = captionTracks.find(t => t.languageCode === 'en' || (t.name && t.name.simpleText && t.name.simpleText.toLowerCase().includes('english'))) || captionTracks[0];
         
-        let captionUrl = caption.url;
+        let captionUrl = track.baseUrl;
+        if (!captionUrl.includes('fmt=json3')) {
+            captionUrl += '&fmt=json3';
+        }
 
-        https.get(captionUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (subRes) => {
-            let subData = '';
-            subRes.on('data', chunk => subData += chunk);
-            subRes.on('end', () => {
-                const subtitles = parseVttToTranscript(subData);
-                res.json(subtitles);
-            });
-        }).on('error', () => {
-            res.status(500).json({ error: 'هەڵە لە هێنانی ناوەرۆکی ژێرنووس.' });
-        });
+        const jsonSubtitleData = await fetchUrl(captionUrl);
+        const subJson = JSON.parse(jsonSubtitleData);
+
+        if (!subJson.events) {
+            return res.status(500).json({ error: 'نەتوانرا داتای ژێرنووس بخوێنرێتەوە.' });
+        }
+
+        const subtitles = subJson.events
+            .filter(event => event.segs && event.segs.length > 0)
+            .map(event => {
+                const text = event.segs.map(seg => seg.utf8 || '').join('').trim();
+                const offset = (event.tStartMs || 0) / 1000;
+                const duration = (event.dDurationMs || 3000) / 1000;
+                return { text, offset, duration };
+            })
+            .filter(sub => sub.text.length > 0 && sub.text !== '\n');
+
+        res.json(subtitles);
 
     } catch (error) {
-        console.error("API error:", error.message);
-        res.status(500).json({ error: 'نەتوانرا ژێرنووسەکە بهێنرێت. لەوانەیە ڤیدیۆکە ژێرنووسی نەبێت.' });
+        console.error("Transcript error:", error.message);
+        res.status(500).json({ error: 'نەتوانرا ژێرنووسەکە بهێنرێت. لەوانەیە ڤیدیۆکە ژێرنووسی نەبێت یان لەلایەن یوتیوبەوە ڕێگری کرابێت.' });
     }
 });
-
-function parseVttToTranscript(data) {
-    const lines = data.split('\n');
-    const result = [];
-    let currentSub = {};
-    
-    for (let i = 0; i < lines.length; i++) {
-        let line = lines[i].trim();
-        if (line.includes('-->')) {
-            const parts = line.split('-->');
-            currentSub.offset = parseTimeToSeconds(parts[0].trim());
-            const endTime = parseTimeToSeconds(parts[1].trim().split(' ')[0]);
-            currentSub.duration = endTime - currentSub.offset;
-        } else if (line && !line.includes('WEBVTT') && !/^\d+$/.test(line) && !line.includes('align:')) {
-            currentSub.text = line;
-            if (currentSub.offset !== undefined) {
-                result.push({ ...currentSub });
-                currentSub = {};
-            }
-        }
-    }
-    return result.length > 0 ? result : [{ text: data, offset: 0, duration: 5 }];
-}
-
-function parseTimeToSeconds(timeStr) {
-    const parts = timeStr.split(':');
-    if (parts.length === 3) {
-        return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseFloat(parts[2].replace(',', '.'));
-    } else if (parts.length === 2) {
-        return parseInt(parts[0]) * 60 + parseFloat(parts[1].replace(',', '.'));
-    }
-    return parseFloat(timeStr);
-}
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
