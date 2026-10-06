@@ -30,7 +30,7 @@ translateBtn.addEventListener('click', async () => {
 
     try {
         // === پەیوەندیکردن بە سێرڤەرەکەی کڵاودفلێرەوە ===
-        const response = await fetch(`https://kurdish-sub-app.pages.dev/api/transcript?videoId=${videoId}`);
+        const response = await fetch(`/api/transcript?videoId=${videoId}`);
         const data = await response.json();
 
         if (data.error) {
