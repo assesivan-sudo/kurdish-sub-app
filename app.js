@@ -29,7 +29,7 @@ translateBtn.addEventListener('click', async () => {
     settingsPanel.classList.add('hidden');
 
     try {
-        // === پەیوەندیکردن بە سێرڤەری کڵاودفلێرەکەی خۆتەوە ===
+        // === پەیوەندیکردن بە سێرڤەرەکەی کڵاودفلێرەوە ===
         const response = await fetch(`https://kurdish-sub-api.assesivan.workers.dev/api/transcript?videoId=${videoId}`);
         const data = await response.json();
 
@@ -43,7 +43,6 @@ translateBtn.addEventListener('click', async () => {
             let start = Number(sub.offset);
             let dur = Number(sub.duration || 3);
             
-            // ئەگەر کاتەکان بە میلیچەرکە بوون، دەیانکەینە چرکە
             if (start > 10000) {
                 start = start / 1000;
                 dur = dur / 1000;
