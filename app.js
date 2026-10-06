@@ -29,8 +29,7 @@ translateBtn.addEventListener('click', async () => {
     settingsPanel.classList.add('hidden');
 
     try {
-        const response = await fetch(`http://localhost:3000/api/transcript?videoId=${videoId}`);
-        const data = await response.json();
+        const response = await fetch(`https://kurdish-sub-app.onrender.com/api/transcript?videoId=${videoId}`);
 
         if (data.error) {
             videoContainer.innerHTML = `<p class="text-red-500 mt-4 text-center">${data.error}</p>`;
