@@ -14,16 +14,27 @@ app.get('/api/transcript', async (req, res) => {
     }
 
     try {
-        const transcript = await YoutubeTranscript.fetchTranscript(videoId, { lang: 'en' });
+        // بەکارهێنانی هێدەری وێبگەڕ بۆ ئەوەی یوتیوب قەدەغەی نەكات
+        const transcript = await YoutubeTranscript.fetchTranscript(videoId, {
+            lang: 'en',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
+        });
         res.json(transcript);
     } catch (error) {
-        console.error("Error fetching English transcript:", error.message);
+        console.error("Error with lang options:", error.message);
         try {
-            const fallbackTranscript = await YoutubeTranscript.fetchTranscript(videoId);
+            const fallbackTranscript = await YoutubeTranscript.fetchTranscript(videoId, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                }
+            });
             res.json(fallbackTranscript);
         } catch (e) {
-            console.error("Error fetching fallback transcript:", e.message);
-            res.status(500).json({ error: 'نەتوانرا ژێرنووسەکە بهێنرێت.', details: e.message });
+            console.error("Fallback error:", e.message);
+            res.status(500).json({ error: 'نەتوانرا ژێرنووسەکە بهێنرێت. لەوانەیە ئەم ڤیدیۆیە ژێرنووسی نەبێت یان لەلایەن یوتیوبەوە ڕێگری کرابێت.' });
         }
     }
 });
