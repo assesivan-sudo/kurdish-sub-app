@@ -5,71 +5,64 @@ const app = express();
 app.use(cors()); 
 app.use(express.json());
 
-// فەنکشنێکی زۆر بەهێز بۆ بەکارهێنانی ٣ پرۆکسیی جیاواز بۆ شاردنەوەی ئایپی Render
-async function fetchWithProxy(targetUrl) {
-    const proxies = [
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
-        `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
-        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`
-    ];
-
-    for (let proxy of proxies) {
-        try {
-            const response = await fetch(proxy, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-                redirect: 'follow'
-            });
-            
-            if (response.ok) {
-                const text = await response.text();
-                // دڵنیابوونەوە لەوەی کە پەڕەی Captcha نییە
-                if (!text.toLowerCase().includes('google.com/recaptcha') && !text.includes('Our systems have detected')) {
-                    return text; // ئەگەر داتاکە خاوێن بوو، بیگەڕێنەوە
-                }
-            }
-        } catch (e) {
-            console.log(`پرۆکسی ${proxy} شکستی هێنا، تاقیکردنەوەی پرۆکسی داهاتوو...`);
-        }
-    }
-    throw new Error('هەموو پرۆکسییەکان شکستیان هێنا یان بلۆک کران.');
-}
-
 app.get('/api/transcript', async (req, res) => {
     const videoId = req.query.videoId;
     if (!videoId) return res.status(400).json({ error: 'ئایدی ڤیدیۆ نەدۆزرایەوە.' });
 
     try {
-        // ١. هێنانی پەڕەی سەرەکیی یوتیوب بە شێوەیەکی شاراوە
-        const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
-        const html = await fetchWithProxy(ytUrl);
+        // بەکارهێنانی InnerTube API کە ڕاستەوخۆ دەچێتە ناو کرۆکی یوتیوب و کەمترین جار بلۆک دەکرێت
+        const response = await fetch('https://www.youtube.com/youtubei/v1/player', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            },
+            body: JSON.stringify({
+                context: {
+                    client: {
+                        clientName: 'WEB',
+                        clientVersion: '2.20210721.00.00'
+                    }
+                },
+                videoId: videoId
+            })
+        });
 
-        const captionMatch = html.match(/"captionTracks":\s*(\[.*?\])/);
-        if (!captionMatch) {
-            return res.status(404).json({ error: 'هیچ ژێرنووسێک نەدۆزراوەتەوە یان ڤیدیۆکە ژێرنووسی نییە.' });
+        if (!response.ok) {
+            throw new Error('InnerTube API وەڵامی نەدایەوە');
         }
 
-        const captionTracks = JSON.parse(captionMatch[1]);
-        if (!captionTracks || captionTracks.length === 0) {
-            return res.status(404).json({ error: 'ژێرنووس بەردەست نییە.' });
+        const data = await response.json();
+
+        // گەڕان بەدوای لیستی ژێرنووسەکاندا لەناو داتا خاوێنەکەدا
+        const captions = data.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+        
+        if (!captions || captions.length === 0) {
+            return res.status(404).json({ error: 'هیچ ژێرنووسێک بۆ ئەم ڤیدیۆیە نەدۆزراوەتەوە، یان ڤیدیۆکە ژێرنووسی نییە.' });
         }
 
-        // دۆزینەوەی ئینگلیزی یان یەکەمین ژێرنووس
-        const track = captionTracks.find(t => t.languageCode === 'en' || (t.name && t.name.simpleText && t.name.simpleText.toLowerCase().includes('english'))) || captionTracks[0];
+        // دۆزینەوەی ئینگلیزی یان یەکەم ژێرنووسی بەردەست
+        const track = captions.find(c => c.languageCode === 'en' || c.name.simpleText.toLowerCase().includes('english')) || captions[0];
 
         let captionUrl = track.baseUrl;
+        // دڵنیابوون لەوەی بە فۆرماتی JSON3 دەیگێڕێتەوە کە خوێندنەوەی ئاسانترە
         if (!captionUrl.includes('fmt=json3')) {
             captionUrl += '&fmt=json3';
         }
 
-        // ٢. هێنانی فایلی ژێرنووسەکە (JSON) بە هەمان شێوەی شاراوە
-        const jsonSubtitleData = await fetchWithProxy(captionUrl);
-        const subJson = JSON.parse(jsonSubtitleData);
+        // هێنانی فایلی ژێرنووسەکە خۆی
+        const transcriptResponse = await fetch(captionUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
 
-        if (!subJson.events) {
+        const transcriptData = await transcriptResponse.json();
+
+        if (!transcriptData.events) {
             return res.status(500).json({ error: 'داتای ژێرنووسەکە بەتاڵە.' });
         }
 
-        const subtitles = subJson.events
+        // ڕێکخستنی داتاکە بۆ ئەو شێوازەی کە ئەپەکەی تۆ دەیخوێنێتەوە
+        const subtitles = transcriptData.events
             .filter(event => event.segs && event.segs.length > 0)
             .map(event => {
                 const text = event.segs.map(seg => seg.utf8 || '').join('').trim();
@@ -83,7 +76,7 @@ app.get('/api/transcript', async (req, res) => {
 
     } catch (error) {
         console.error("Transcript error:", error.message);
-        res.status(500).json({ error: 'نەتوانرا ژێرنووسەکە بهێنرێت. سێرڤەر ڕێگری لێکرا.' });
+        res.status(500).json({ error: 'نەتوانرا ژێرنووسەکە بهێنرێت، سێرڤەری یوتیوب ڕێگری کرد.' });
     }
 });
 
