@@ -18,6 +18,75 @@ let subtitles = [];
 let player; 
 let activeSubOffset = -1; 
 
+// فەنکشنی نوێ بۆ هێنانی ژێرنووس ڕاستەوخۆ لە وێبگەڕەوە بێ سێرڤەر
+async function fetchSubtitlesDirectly(videoId) {
+    const instances = [
+        'https://pipedapi.kavin.rocks/streams/',
+        'https://pipedapi.smnz.de/streams/',
+        'https://api.piped.projectsegfau.lt/streams/'
+    ];
+
+    let videoData = null;
+
+    for (let baseUrl of instances) {
+        try {
+            const res = await fetch(`${baseUrl}${videoId}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.subtitles && data.subtitles.length > 0) {
+                    videoData = data;
+                    break;
+                }
+            }
+        } catch (e) {
+            console.log(`Failed to fetch from ${baseUrl}`);
+        }
+    }
+
+    if (!videoData) {
+        throw new Error('هیچ ژێرنووسێک بۆ ئەم ڤیدیۆیە نەدۆزراوەتەوە، یان ڤیدیۆکە ژێرنووسی نییە.');
+    }
+
+    // دۆزینەوەی ئینگلیزی
+    const track = videoData.subtitles.find(c => c.code === 'en' || (c.name && c.name.toLowerCase().includes('english'))) || videoData.subtitles[0];
+
+    // هێنانی دەقی ژێرنووسەکە
+    const subRes = await fetch(track.url);
+    const subText = await subRes.text();
+
+    // پارسکرن (گۆڕینی بۆ داتای بەکارهاتوو)
+    const lines = subText.split('\n');
+    const result = [];
+    let currentSub = {};
+
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trim();
+        if (line.includes('-->')) {
+            const parts = line.split('-->');
+            currentSub.offset = parseTimeToSeconds(parts[0].trim());
+            const endTime = parseTimeToSeconds(parts[1].trim().split(' ')[0]);
+            currentSub.duration = endTime - currentSub.offset;
+        } else if (line && !line.includes('WEBVTT') && !/^\d+$/.test(line) && !line.includes('align:')) {
+            currentSub.text = line;
+            if (currentSub.offset !== undefined) {
+                result.push({ ...currentSub });
+                currentSub = {};
+            }
+        }
+    }
+    return result;
+}
+
+function parseTimeToSeconds(timeStr) {
+    const parts = timeStr.split(':');
+    if (parts.length === 3) {
+        return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseFloat(parts[2].replace(',', '.'));
+    } else if (parts.length === 2) {
+        return parseInt(parts[0]) * 60 + parseFloat(parts[1].replace(',', '.'));
+    }
+    return parseFloat(timeStr);
+}
+
 translateBtn.addEventListener('click', async () => {
     const url = linkInput.value;
     if (!url) return alert("تکایە لینکێکی یوتیوب دابنێ!");
@@ -29,33 +98,8 @@ translateBtn.addEventListener('click', async () => {
     settingsPanel.classList.add('hidden');
 
     try {
-        // === لێرەدا ڕاستەوخۆ بەستراوەتەوە بە سێرڤەرە نوێیەکەت لەسەر Vercel ===
-        const response = await fetch(`https://kurdish-sub-api.assesivan.workers.dev/api/transcript?videoId=${videoId}`);
-        const data = await response.json();
-
-        if (data.error) {
-            videoContainer.innerHTML = `<p class="text-red-500 mt-4 text-center">${data.error}</p>`;
-            return;
-        }
-
-        // --- ڕێکخستنی وردی کاتەکانی ژێرنووس ---
-        subtitles = data.map(sub => {
-            let start = Number(sub.offset);
-            let dur = Number(sub.duration || 3);
-            
-            // ئەگەر کاتەکان بە میلیچەرکە بوون، دەیانکەینە چرکە
-            if (start > 10000) {
-                start = start / 1000;
-                dur = dur / 1000;
-            }
-            
-            return {
-                ...sub,
-                offset: start,
-                duration: dur > 0 ? dur : 3
-            };
-        });
-        // ----------------------------------------
+        // ئێستا ڕاستەوخۆ بانگی فەنکشنەکە دەکات لەجیاتی ئەوەی بچێت بۆ باکێند
+        subtitles = await fetchSubtitlesDirectly(videoId);
         
         try {
             await supabaseClient
@@ -80,7 +124,7 @@ translateBtn.addEventListener('click', async () => {
         applySubtitleStyles();
         loadYouTubePlayer(videoId);
     } catch (error) {
-        videoContainer.innerHTML = `<p class="text-red-500 mt-4 text-center">کێشەیەک ڕوویدا. دڵنیابە سێرڤەرەکە کار دەکات.</p>`;
+        videoContainer.innerHTML = `<p class="text-red-500 mt-4 text-center">${error.message}</p>`;
     }
 });
 
