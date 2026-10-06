@@ -6,30 +6,12 @@ const app = express();
 app.use(cors()); 
 app.use(express.json());
 
-// فەنکشنێک بۆ هێنانی پەڕەی یوتیوب لە ڕێگەی پرۆکسییەوە بۆ تێپەڕاندنی بلۆکی Render
-function fetchViaProxy(videoId) {
+// فەنکشنی پرۆکسی بۆ هێنانی پەڕەی ڤیدیۆ و فایلی ژێرنووس بێ ئەوەی یوتیوب بزانێت داواکارییەکە لە Renderـەوەیە
+function fetchViaProxy(targetUrl) {
     return new Promise((resolve, reject) => {
-        const ytUrl = encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`);
-        const proxyUrl = `https://api.allorigins.win/get?url=${ytUrl}`;
-
+        // بەکارهێنانی codetabs وەک پرۆکسییەکی زۆر خێرا و بێ کێشە
+        const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`;
         https.get(proxyUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => {
-                try {
-                    const json = JSON.parse(data);
-                    resolve(json.contents); // HTMLـی پەڕەکە لێرەدایە
-                } catch (e) {
-                    reject(e);
-                }
-            });
-        }).on('error', reject);
-    });
-}
-
-function fetchUrl(url) {
-    return new Promise((resolve, reject) => {
-        https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => resolve(data));
@@ -42,23 +24,20 @@ app.get('/api/transcript', async (req, res) => {
     if (!videoId) return res.status(400).json({ error: 'ئایدی ڤیدیۆ نەدۆزرایەوە.' });
 
     try {
-        // هێنانی داتای ڤیدیۆکە بە شێوەیەکی شاراوە (Proxy)
-        const html = await fetchViaProxy(videoId);
+        // ١. هێنانی پەڕەی یوتیوبەکە بە پرۆکسی
+        const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+        const html = await fetchViaProxy(ytUrl);
 
-        if (!html) {
-            return res.status(500).json({ error: 'نەتوانرا پەڕەی یوتیوب بهێنرێت.' });
+        if (!html || !html.includes('captionTracks')) {
+            return res.status(404).json({ error: 'هیچ ژێرنووسێک نەدۆزراوەتەوە. ڕەنگە ڤیدیۆکە ژێرنووسی نەبێت.' });
         }
 
         const captionMatch = html.match(/"captionTracks":\s*(\[.*?\])/);
         if (!captionMatch) {
-            return res.status(404).json({ error: 'هیچ ژێرنووسێک نەدۆزراوەتەوە. ڕەنگە ڤیدیۆکە ژێرنووسی نەبێت.' });
-        }
-
-        const captionTracks = JSON.parse(captionMatch[1]);
-        if (!captionTracks || captionTracks.length === 0) {
             return res.status(404).json({ error: 'ژێرنووس بەردەست نییە.' });
         }
 
+        const captionTracks = JSON.parse(captionMatch[1]);
         // دۆزینەوەی ئینگلیزی یان یەکەمین ژێرنووس
         const track = captionTracks.find(t => t.languageCode === 'en' || (t.name && t.name.simpleText && t.name.simpleText.toLowerCase().includes('english'))) || captionTracks[0];
 
@@ -67,11 +46,18 @@ app.get('/api/transcript', async (req, res) => {
             captionUrl += '&fmt=json3';
         }
 
-        const jsonSubtitleData = await fetchUrl(captionUrl);
+        // ٢. چارەسەری سەرەکی لێرەدایە: ئێستا خودی فایلەکەش بە پرۆکسی دەهێنین
+        const jsonSubtitleData = await fetchViaProxy(captionUrl);
+        
+        // دڵنیابوونەوە لەوەی وەڵامەکە HTML یان Captcha نییە
+        if (jsonSubtitleData.trim().startsWith('<')) {
+             return res.status(500).json({ error: 'یوتیوب ڕێگری لە هێنانی فایلی ژێرنووسەکە کرد.' });
+        }
+
         const subJson = JSON.parse(jsonSubtitleData);
 
         if (!subJson.events) {
-            return res.status(500).json({ error: 'داتای ژێرنووس هەڵەیە.' });
+            return res.status(500).json({ error: 'داتای ژێرنووسەکە بەتاڵە.' });
         }
 
         const subtitles = subJson.events
