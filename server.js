@@ -71,4 +71,33 @@ function parseVttToTranscript(data) {
     
     for (let i = 0; i < lines.length; i++) {
         let line = lines[i].trim();
-        if (line.includes('-->'))
+        if (line.includes('-->')) {
+            const parts = line.split('-->');
+            currentSub.offset = parseTimeToSeconds(parts[0].trim());
+            const endTime = parseTimeToSeconds(parts[1].trim().split(' ')[0]);
+            currentSub.duration = endTime - currentSub.offset;
+        } else if (line && !line.includes('WEBVTT') && !/^\d+$/.test(line) && !line.includes('align:')) {
+            currentSub.text = line;
+            if (currentSub.offset !== undefined) {
+                result.push({ ...currentSub });
+                currentSub = {};
+            }
+        }
+    }
+    return result.length > 0 ? result : [{ text: data, offset: 0, duration: 5 }];
+}
+
+function parseTimeToSeconds(timeStr) {
+    const parts = timeStr.split(':');
+    if (parts.length === 3) {
+        return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseFloat(parts[2].replace(',', '.'));
+    } else if (parts.length === 2) {
+        return parseInt(parts[0]) * 60 + parseFloat(parts[1].replace(',', '.'));
+    }
+    return parseFloat(timeStr);
+}
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`سێرڤەرەکە بە سەرکەوتوویی کار دەکات لەسەر پۆرت: ${PORT}`);
+});
