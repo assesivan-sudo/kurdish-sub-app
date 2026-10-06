@@ -29,8 +29,7 @@ app.get('/api/transcript', async (req, res) => {
     }
 
     try {
-        // بەکارهێنانی سەرچاوەیەکی دەرەکی بۆ دوورکەوتنەوە لە قەدەغەکردنی یوتیوب لەسەر Render
-        const invidiousApiUrl = `https://invidious.privacydev.net/api/v1/videos/${videoId}`;
+        const invidiousApiUrl = `https://invidious.projectsegfau.lt/api/v1/videos/${videoId}`;
         const videoData = await fetchJson(invidiousApiUrl);
 
         if (!videoData.captions || videoData.captions.length === 0) {
@@ -41,7 +40,7 @@ app.get('/api/transcript', async (req, res) => {
         
         let captionUrl = caption.url;
         if (captionUrl.startsWith('/')) {
-            captionUrl = `https://invidious.privacydev.net${captionUrl}`;
+            captionUrl = `https://invidious.projectsegfau.lt${captionUrl}`;
         }
 
         https.get(captionUrl, (subRes) => {
