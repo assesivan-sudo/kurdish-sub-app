@@ -30,6 +30,7 @@ translateBtn.addEventListener('click', async () => {
 
     try {
         const response = await fetch(`https://kurdish-sub-app.onrender.com/api/transcript?videoId=${videoId}`);
+        const data = await response.json();
 
         if (data.error) {
             videoContainer.innerHTML = `<p class="text-red-500 mt-4 text-center">${data.error}</p>`;
@@ -78,6 +79,7 @@ translateBtn.addEventListener('click', async () => {
         applySubtitleStyles();
         loadYouTubePlayer(videoId);
     } catch (error) {
+        console.error(error);
         videoContainer.innerHTML = `<p class="text-red-500 mt-4 text-center">کێشەیەک ڕوویدا. دڵنیابە سێرڤەرەکە کار دەکات.</p>`;
     }
 });
