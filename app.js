@@ -29,7 +29,7 @@ translateBtn.addEventListener('click', async () => {
     settingsPanel.classList.add('hidden');
 
     try {
-        // بانگکردنی سێرڤەرەکەی کڵاودفلێر کە کێشەی CORS و یوتیوبی چارەسەر کردووە
+        // === پەیوەندیکردن بە سێرڤەری کڵاودفلێرەکەی خۆتەوە ===
         const response = await fetch(`https://kurdish-sub-api.assesivan.workers.dev/api/transcript?videoId=${videoId}`);
         const data = await response.json();
 
@@ -38,7 +38,24 @@ translateBtn.addEventListener('click', async () => {
             return;
         }
 
-        subtitles = data;
+        // --- ڕێکخستنی وردی کاتەکانی ژێرنووس ---
+        subtitles = data.map(sub => {
+            let start = Number(sub.offset);
+            let dur = Number(sub.duration || 3);
+            
+            // ئەگەر کاتەکان بە میلیچەرکە بوون، دەیانکەینە چرکە
+            if (start > 10000) {
+                start = start / 1000;
+                dur = dur / 1000;
+            }
+            
+            return {
+                ...sub,
+                offset: start,
+                duration: dur > 0 ? dur : 3
+            };
+        });
+        // ----------------------------------------
         
         try {
             await supabaseClient
@@ -63,7 +80,7 @@ translateBtn.addEventListener('click', async () => {
         applySubtitleStyles();
         loadYouTubePlayer(videoId);
     } catch (error) {
-        videoContainer.innerHTML = `<p class="text-red-500 mt-4 text-center">کێشەیەک ڕوویدا. تکایە دووبارە تاقیبکەرەوە.</p>`;
+        videoContainer.innerHTML = `<p class="text-red-500 mt-4 text-center">کێشەیەک ڕوویدا. دڵنیابە سێرڤەرەکە کار دەکات.</p>`;
     }
 });
 
@@ -77,8 +94,8 @@ async function translateToKurdish(text) {
     try {
         const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ckb&dt=t&q=${encodeURIComponent(text)}`;
         const res = await fetch(url);
-        const data = await res.json();
-        return data[0][0][0]; 
+        const transData = await res.json();
+        return transData[0][0][0]; 
     } catch (e) {
         return text; 
     }
